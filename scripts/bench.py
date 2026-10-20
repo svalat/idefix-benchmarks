@@ -278,11 +278,24 @@ class BenchJobSubmitter(BenchBase):
     def __init__(self, args):
         super().__init__(args)
 
+    def launch_jobs(self, cores: str) -> None:
+        if cores == "all":
+            self.launch_all_jobs()
+        else:
+            cores_ints = [int(item) for item in cores.split(",")]
+            self.launch_job_list(cores_ints)
+
     def launch_all_jobs(self) -> None:
         '''
         Launch all the jobs.
         '''
-        for ncores in self.core_list:
+        self.launch_job_list(self.core_list)
+
+    def launch_job_list(self, core_list: list) -> None:
+        '''
+        Launch the given list of jobs
+        '''
+        for ncores in core_list:
             self.launch_job(ncores)
             print("")
 
@@ -517,6 +530,7 @@ def main():
     # add 'gen' command
     cmd_gen = subparsers.add_parser('gen', help="Generate the jobs directories to be ready to run.")
     cmd_run = subparsers.add_parser('run', help="Run the jobs on the cluster (need to have generated them before).")
+    cmd_run.add_argument('--cores', type=str, default="all", help="Define the list of scaling to run as a list separated by commas (by default all).")
     cmd_extract = subparsers.add_parser('extract', help="Generate the final summary data file from the run.")
     cmd_extract.add_argument('--date', type=str, default=datetime.datetime.today().strftime('%Y-%m-%d'), help="Parmit to extract the data from another date.")
     cmd_extract.add_argument('--plot', action='store_true', help="Render the plottings with gnuplot.")
@@ -536,7 +550,7 @@ def main():
         bench.gen_all_jobs()
     elif args.command == 'run':
         bench = BenchJobSubmitter(args)
-        bench.launch_all_jobs()
+        bench.launch_jobs(args.cores)
     elif args.command == 'extract':
         bench = BenchJobExtractor(args)
         bench.extract_all_infos(args.date, args.plot)
