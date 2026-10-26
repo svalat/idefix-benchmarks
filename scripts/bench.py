@@ -10,6 +10,7 @@
 ###############################################################################
 import os
 import re
+import sys
 import json
 import math
 import stat
@@ -18,6 +19,7 @@ import argparse
 import datetime
 import subprocess
 import contextlib
+import importlib.util
 
 ###############################################################################
 @contextlib.contextmanager
@@ -405,8 +407,6 @@ class BenchJobExtractor(BenchBase):
         '''
         # gen dir
         targetDir = self.gen_rundir_path(ncores, date=date)    
-        fname = os.path.join(targetDir, "summary.json")
-        print(f"-- Generate {fname}")
 
         # store out
         result = {
@@ -442,12 +442,134 @@ class BenchJobExtractor(BenchBase):
         # some cast
         result['performance'] = float(result['performance'])
 
+        # ok
+        return result
+
+    def extract_and_save_infos(self, ncores:int, date: str) -> None:
+        # gen dir
+        targetDir = self.gen_rundir_path(ncores, date=date)    
+        fname = os.path.join(targetDir, "summary.json")
+        print(f"-- Generate {fname}")
+
+        # extract
+        result = self.extract_infos(ncores, date)
+
         # save it
         with open(fname, "w") as fp:
             json.dump(result, fp=fp, indent='\t')
 
         # ok
         return result
+
+###############################################################################
+class GenSummaryArgs():
+    def __init__(self, app: str = '*', host: str = '*'):
+        self.app = app
+        self.host = host
+
+###############################################################################
+class BenchIdefixHistory(BenchJobExtractor):
+    '''
+    Once we ran, we can publish the results in an history repos to look on perf
+    over time.
+    '''
+    def __init__(self, args):
+        # inherit
+        super().__init__(args)
+
+        # build some vars
+        self.cluster_name = args.cluster
+        self.commit_id = args.commit
+        self.script_dir = os.path.dirname(__file__)
+        self.bench_source_dir = os.path.dirname(self.script_dir)
+        self.source_dir = args.source_directory
+        self.history_dir = os.path.join(self.bench_source_dir, f"./history")
+
+    def clone(self) -> None:
+        # check if already cloned
+        if os.path.exists("history"):
+            return
+
+        # if not need to clone
+        subprocess.run(['git', 'clone', '/home/valats/Projects/cnrs/idefix-perf-history.git', 'history'], shell=False, check=True)
+
+    def geninfos(self, date) -> None:
+        # clone if needed
+        self.clone()
+
+        # get xshells perf history
+        xshells_perf_history = self.get_xshells_perf_history(date, None)
+
+        # dump
+        xshells_perf_history.dump_infos()
+
+    def ask_ok(self) -> bool:
+        user_input = ''
+        while True:
+            user_input = input('Do you want to continue ? (Y/n) : ')
+            if user_input.lower() == 'y' or user_input == '':
+                return True
+            elif user_input.lower() == 'n':
+                return False
+
+    def push(self) -> None:
+        # check if already cloned
+        if os.path.exists("history"):
+            raise "You first need to publish so we get a clone of the 'history' repo !"
+
+        # ask if OK
+        subprocess.run(['git', 'status'], cwd='history', shell=False, check=True)
+
+        # ask
+        if not self.ask_ok():
+            return
+
+        # if not need to clone
+        subprocess.run(['git', 'add', '.'], cwd='history', shell=False, check=True)
+        subprocess.run(['git', 'commit', '-a'], cwd='history', shell=False, check=True)
+        subprocess.run(['git', 'push'], cwd='history', shell=False, check=True)
+
+    def get_xshells_perf_history(self, date: str, result: dict) -> object:
+        # import
+        spec = importlib.util.spec_from_file_location("history.xshells_perf_history", "history/xshells_perf_history.py")
+        xshells_perf_history = importlib.util.module_from_spec(spec)
+        sys.modules["history.xshells_perf_history"] = xshells_perf_history
+        spec.loader.exec_module(xshells_perf_history)
+
+        # perfdir
+        performance_dir = os.path.abspath(os.path.join(self.history_dir, "data"))
+        idefix_performance_dir = os.path.join(performance_dir, "idefix")
+        os.makedirs(idefix_performance_dir, exist_ok=True)
+
+        # extract mode from cluster name
+        mode = '-'.join(self.cluster_name.split('/')[1:])
+        hostname = self.cluster_name.split('/')[0]
+
+        # instanciate
+        injector = xshells_perf_history.XShellPerfRunnerIdefixPerfInjector(result)
+        perf_history = xshells_perf_history.XShellPerfHistory(self.source_dir, idefix_performance_dir, mode, injector)
+        perf_history.hostname = hostname
+
+        return perf_history
+
+    def publish(self, date: str) -> None:
+        # clone if needed
+        self.clone()
+
+        # perfdir
+        performance_dir = os.path.abspath(os.path.join(self.history_dir, "data"))
+
+        result={}
+        for ncores in self.core_list:
+            # extract
+            result[f"np={ncores}"] = self.extract_infos(ncores, date)
+
+        # get xehells perf history
+        perf_history = self.get_xshells_perf_history(date, result)
+
+        # regen all
+        perf_history.gen_summary(performance_dir, GenSummaryArgs(app="idefix", host='*'))
+        perf_history.collect_perf(f"OrszagTang3D", ['./idefix'], append=False)
 
 ###############################################################################
 class BenchIdefixBuilder:
@@ -462,8 +584,8 @@ class BenchIdefixBuilder:
         # workdir
         cluster_dir = self.cluster_name.replace('/','-')
         self.workdir = os.path.abspath(f"./idefix")
-        self.source_dir = os.path.abspath(f"./idefix/{self.commit_id}")
-        self.build_dir = os.path.abspath(f"./idefix/{self.commit_id}/build-{cluster_dir}")
+        self.source_dir = args.source_directory
+        self.build_dir = args.build_directory
         self.cluster_dir = os.path.abspath(f"./clusters/{self.cluster_name}")
         self.setup_dir = os.path.abspath(f"./OrszagTang3D/setup/")
 
@@ -482,7 +604,7 @@ class BenchIdefixBuilder:
         # clone or checkout
         if os.path.exists(self.source_dir):
             with jump_in_dir(self.source_dir):
-                subprocess.run(['git', 'pull'], shell=False, check=True)
+                subprocess.run(['git', 'fetch', '--all'], shell=False, check=True)
                 subprocess.run(['git', 'checkout', self.commit_id], shell=False, check=True)
                 subprocess.run(['git', 'submodule', 'update', '--init'], shell=False, check=True)
         else:
@@ -520,9 +642,11 @@ def main():
     parser.add_argument('--problem-size', type=int, default=64)
     parser.add_argument('--account', type=str, default='default')
     parser.add_argument('--cluster', type=str, required=True)
+    parser.add_argument('--single-source-dir', action='store_true', help='Use a single source dir instead of one per version.')
     parser.add_argument('--build-directory', type=str, default='./idefix/@commit@/build-@cluster@')
     parser.add_argument('--run-directory', type=str, default='./runs/@commit@/@cluster@')
-    parser.add_argument("--commit", type=str, help="The commit, tag or branch to build for.", default='master')
+    parser.add_argument('--source-directory', type=str, default='./idefix/@commit@')
+    parser.add_argument('--commit', type=str, help="The commit, tag or branch to build for.", default='master')
 
     # build sub parser
     subparsers = parser.add_subparsers(dest="command")
@@ -532,17 +656,35 @@ def main():
     cmd_run = subparsers.add_parser('run', help="Run the jobs on the cluster (need to have generated them before).")
     cmd_run.add_argument('--cores', type=str, default="all", help="Define the list of scaling to run as a list separated by commas (by default all).")
     cmd_extract = subparsers.add_parser('extract', help="Generate the final summary data file from the run.")
-    cmd_extract.add_argument('--date', type=str, default=datetime.datetime.today().strftime('%Y-%m-%d'), help="Parmit to extract the data from another date.")
+    cmd_extract.add_argument('--date', type=str, default=datetime.datetime.today().strftime('%Y-%m-%d'), help="Permit to extract the data from another date.")
     cmd_extract.add_argument('--plot', action='store_true', help="Render the plottings with gnuplot.")
+    cmd_history = subparsers.add_parser('history')
     cmd_build = subparsers.add_parser('build', help="Clone and build Idefix for the cluster.")
+    
+    # sub sub commands about history
+    histsubparsers = cmd_history.add_subparsers(dest="sub_command")
+    cmd_infos = histsubparsers.add_parser('infos', help="Clone the history repo and extract the cluster infos.")
+    cmd_infos.add_argument('--date', type=str, default=datetime.datetime.today().strftime('%Y-%m-%d'), help="Permit to extract the data from another date.")
+    cmd_publish = histsubparsers.add_parser('publish', help='Publish the given results in the history repo.')
+    cmd_publish.add_argument('--date', type=str, default=datetime.datetime.today().strftime('%Y-%m-%d'), help="Permit to extract the data from another date.")
+    cmd_push = histsubparsers.add_parser('push', help='Commit and push the results to the history git repo.')
+    cmd_push.add_argument('--repo', type=str, help="Repo in which to push")
+    cmd_push.add_argument('--branch', type=str, help="Branch in which to push")
 
     # parse
     args = parser.parse_args()
 
+    # configure source dir name
+    if args.single_source_dir:
+        dir_commit = "single"
+    else:
+        dir_commit = args.commit
+
     # replace
     cluster_dir = args.cluster.replace('/', '-')
-    args.build_directory = args.build_directory.replace('@commit@', args.commit).replace('@cluster@', cluster_dir)
-    args.run_directory = args.run_directory.replace('@commit@', args.commit).replace('@cluster@', cluster_dir)
+    args.source_directory = os.path.abspath(args.source_directory.replace('@commit@', dir_commit).replace('@cluster@', cluster_dir))
+    args.build_directory = os.path.abspath(args.build_directory.replace('@commit@', dir_commit).replace('@cluster@', cluster_dir))
+    args.run_directory = os.path.abspath(args.run_directory.replace('@commit@', args.commit).replace('@cluster@', cluster_dir))
 
     # run
     if args.command == 'gen':
@@ -557,6 +699,18 @@ def main():
     elif args.command == 'build':
         bench = BenchIdefixBuilder(args)
         bench.idefix_build()
+    elif args.command == 'history':
+        if args.sub_command == 'infos':
+            bench = BenchIdefixHistory(args)
+            bench.geninfos(args.date)
+        elif args.sub_command == 'publish':
+            bench = BenchIdefixHistory(args)
+            bench.publish(args.date)
+        elif args.sub_command == 'push':
+            bench = BenchIdefixHistory(args)
+            bench.push()
+        else:
+            raise Exception(f"Invalid command : {args.sub_command}")
     else:
         raise Exception(f"Invalid command : {args.command}")
 
