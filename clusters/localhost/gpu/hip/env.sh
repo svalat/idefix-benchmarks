@@ -1,0 +1,1 @@
+export IDEFIX_FLAGS="-DIdefix_MPI=ON -DKokkos_ENABLE_OPENMP=ON -DKokkos_ENABLE_HIP=ON"
