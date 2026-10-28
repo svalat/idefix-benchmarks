@@ -555,7 +555,7 @@ class BenchIdefixHistory(BenchJobExtractor):
 
         return (xshells_perf_history, perf_history)
 
-    def publish(self, date: str) -> None:
+    def add(self, date: str) -> None:
         # clone if needed
         self.clone()
 
@@ -668,8 +668,8 @@ def main():
     histsubparsers = cmd_history.add_subparsers(dest="sub_command")
     cmd_infos = histsubparsers.add_parser('infos', help="Clone the history repo and extract the cluster infos.")
     cmd_infos.add_argument('--date', type=str, default=datetime.datetime.today().strftime('%Y-%m-%d'), help="Permit to extract the data from another date.")
-    cmd_publish = histsubparsers.add_parser('publish', help='Publish the given results in the history repo.')
-    cmd_publish.add_argument('--date', type=str, default=datetime.datetime.today().strftime('%Y-%m-%d'), help="Permit to extract the data from another date.")
+    cmd_hist_add = histsubparsers.add_parser('add', help='Add the given results in the history repo.')
+    cmd_hist_add.add_argument('--date', type=str, default=datetime.datetime.today().strftime('%Y-%m-%d'), help="Permit to extract the data from another date.")
     cmd_push = histsubparsers.add_parser('push', help='Commit and push the results to the history git repo.')
     cmd_push.add_argument('--repo', type=str, help="Repo in which to push")
     cmd_push.add_argument('--branch', type=str, help="Branch in which to push")
@@ -706,9 +706,9 @@ def main():
         if args.sub_command == 'infos':
             bench = BenchIdefixHistory(args)
             bench.geninfos(args.date)
-        elif args.sub_command == 'publish':
+        elif args.sub_command == 'add':
             bench = BenchIdefixHistory(args)
-            bench.publish(args.date)
+            bench.add(args.date)
         elif args.sub_command == 'push':
             bench = BenchIdefixHistory(args)
             bench.push()
