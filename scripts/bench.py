@@ -529,7 +529,7 @@ class BenchIdefixHistory(BenchJobExtractor):
         subprocess.run(['git', 'commit', '-a'], cwd='history', shell=False, check=True)
         subprocess.run(['git', 'push'], cwd='history', shell=False, check=True)
 
-    def get_xshells_perf_history(self, date: str, result: dict) -> object:
+    def get_xshells_perf_history(self, date: str, result: dict) -> tuple:
         # import
         spec = importlib.util.spec_from_file_location("history.xshells_perf_history", "history/xshells_perf_history.py")
         xshells_perf_history = importlib.util.module_from_spec(spec)
@@ -550,7 +550,7 @@ class BenchIdefixHistory(BenchJobExtractor):
         perf_history = xshells_perf_history.XShellPerfHistory(self.source_dir, idefix_performance_dir, mode, injector)
         perf_history.hostname = hostname
 
-        return perf_history
+        return (xshells_perf_history, perf_history)
 
     def publish(self, date: str) -> None:
         # clone if needed
@@ -565,10 +565,10 @@ class BenchIdefixHistory(BenchJobExtractor):
             result[f"np={ncores}"] = self.extract_infos(ncores, date)
 
         # get xehells perf history
-        perf_history = self.get_xshells_perf_history(date, result)
+        xshells_perf_history, perf_history = self.get_xshells_perf_history(date, result)
 
         # regen all
-        perf_history.gen_summary(performance_dir, GenSummaryArgs(app="idefix", host='*'))
+        xshells_perf_history.gen_summary(performance_dir, GenSummaryArgs(app="idefix", host='*'))
         perf_history.collect_perf(f"OrszagTang3D", ['./idefix'], append=False)
 
 ###############################################################################
