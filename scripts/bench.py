@@ -681,7 +681,7 @@ def main():
         dir_commit = args.commit
 
     # replace
-    cluster_dir = args.cluster.replace('/', '-')
+    cluster_dir = args.cluster.trim("/").replace('/', '-')
     args.source_directory = os.path.abspath(args.source_directory.replace('@commit@', dir_commit).replace('@cluster@', cluster_dir))
     args.build_directory = os.path.abspath(args.build_directory.replace('@commit@', dir_commit).replace('@cluster@', cluster_dir))
     args.run_directory = os.path.abspath(args.run_directory.replace('@commit@', args.commit).replace('@cluster@', cluster_dir))
