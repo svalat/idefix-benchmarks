@@ -430,6 +430,9 @@ class BenchJobExtractor(BenchBase):
             "kokkos_version": re.compile(r"\s*Built against Kokkos (.+)"),
             "running_node_0": re.compile(r"\s*Running on (.+)"),
             "gpu_model": re.compile(r"\s*Kokkos::Cuda\[ [0-9]+ \] (.+) : Selected"),
+            "compiler_name": re.compile(r"\s*Compiler name: (.+)"),
+            "compiler_version": re.compile(r"\s*Compiler version: (.+)"),
+            "compiler_path": re.compile(r"\s*Compiler path: +(.+)"),
             "performance": re.compile(r"\s*Main: Perfs are (.+) cell updates/second"),
         }
 
